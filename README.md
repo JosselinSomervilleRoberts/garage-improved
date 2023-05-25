@@ -4,6 +4,14 @@
 [![codecov](https://codecov.io/gh/rlworkgroup/garage/branch/master/graph/badge.svg)](https://codecov.io/gh/rlworkgroup/garage)
 [![PyPI version](https://badge.fury.io/py/garage.svg)](https://badge.fury.io/py/garage)
 
+
+# Custom changes in this fork (garage-improved)
+
+To install run:
+```bash
+pip install -e ".[dm_control,mujoco]"
+```
+
 # garage
 
 garage is a toolkit for developing and evaluating reinforcement learning
