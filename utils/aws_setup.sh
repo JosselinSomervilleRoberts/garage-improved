@@ -41,7 +41,7 @@ yes y | sudo apt install libosmesa6-dev libgl1-mesa-glx libglfw3
 cd ..
 
 # Install garage
-yes y | pip install -e '.[mujoco,dm_control]'
+yes y | pip install -e '.[mujoco,dm_control,tensorflow]'
 
 # Install metaworld
 yes y | sudo apt install swig # required for box2d (See https://github.com/openai/spinningup/issues/32)
