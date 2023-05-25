@@ -225,14 +225,17 @@ class Trainer:
                 # failed otherwise.
                 policy = self._algo.policy
             agent_update = policy.get_param_values()
-        episodes = self._sampler.obtain_samples(
+        result = self._sampler.obtain_samples(
             itr, (batch_size or self._train_args.batch_size),
             agent_update=agent_update,
             env_update=env_update,
             task_distribution=task_distribution,
             return_sample_distribution=return_sample_distribution)
+        episodes = result
+        if return_sample_distribution:
+            episodes, _ = result
         self._stats.total_env_steps += sum(episodes.lengths)
-        return episodes
+        return result
 
     def obtain_samples(self,
                        itr,
@@ -271,7 +274,11 @@ class Trainer:
             list[dict]: One batch of samples.
 
         """
-        eps = self.obtain_episodes(itr, batch_size, agent_update, env_update, task_distribution, return_sample_distribution)
+        result = self.obtain_episodes(itr, batch_size, agent_update, env_update, task_distribution, return_sample_distribution)
+        eps = result
+        if return_sample_distribution:
+            eps, sample_distrib = result
+            return eps.to_list(), sample_distrib
         return eps.to_list()
 
     def save(self, epoch):
