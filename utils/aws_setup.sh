@@ -2,10 +2,10 @@
 pwd=`pwd`
 
 # Create conda env and activate it
-yes y | conda create -n rlgarage python==3.8
+yes y | conda create -n garage_improved python==3.8
 conda init bash
 source ~/.bashrc
-conda activate rlgarage
+conda activate garage_improved
 
 # Install tensorflow and pytorch
 # This should get isntalled with garage
@@ -32,7 +32,7 @@ rm -r -f mujoco210-linux-x86_64.tar.gz
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/ubuntu/.mujoco/mujoco200/bin' >> ~/.bashrc
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/nvidia' >> ~/.bashrc
 source ~/.bashrc
-conda activate rlgarage
+conda activate garage_improved
 yes y | sudo apt-get install patchelf
 yes y | sudo apt-get install libglew-dev
 yes y | pip install mujoco
@@ -49,4 +49,4 @@ yes y | pip install git+https://github.com/Farama-Foundation/Metaworld.git@maste
 yes y | pip install 'gym[box2d]'
 # Fix metaworld bug 'Maximum path length allowed by the benchmark has been exceeded'
 cd $pwd
-cp ./mujoco_env_file_fixed.py /opt/conda/envs/rlgarage/lib/python3.8/site-packages/metaworld/envs/mujoco/mujoco_env.py
+cp ./mujoco_env_file_fixed.py /opt/conda/envs/garage_improved/lib/python3.8/site-packages/metaworld/envs/mujoco/mujoco_env.py
