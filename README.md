@@ -15,6 +15,12 @@ pip install 'gym[box2d]'
 pip install git+https://github.com/JosselinSomervilleRoberts/JossPythonToolbox.git
 ```
 
+On an EC2 AWS instance, you can run our script to install everything:
+```bash
+cd utils
+bash aws_setup.sh
+```
+
 # garage
 
 garage is a toolkit for developing and evaluating reinforcement learning
