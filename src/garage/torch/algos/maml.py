@@ -420,7 +420,7 @@ class MAML:
             names = self._env.all_task_names
             name_map = dict(zip(names, names))
 
-        rtns = log_multitask_performance(
+        performance = log_multitask_performance(
             itr,
             EpisodeBatch.from_list(
                 env_spec=self._env.spec,
@@ -439,7 +439,7 @@ class MAML:
             tabular.record('KLAfter', kl)
             tabular.record('Entropy', policy_entropy)
 
-        return np.mean(rtns)
+        return performance['average']['average_return']
 
     def get_exploration_policy(self):
         """Return a policy used before adaptation to a specific task.

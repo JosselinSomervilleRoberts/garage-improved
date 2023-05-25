@@ -2,9 +2,12 @@
 # yapf: disable
 import numpy as np
 import torch
+from tqdm import tqdm
+from typing import Dict
+from dowel import tabular
 
 from garage import (EpisodeBatch, log_multitask_performance,
-                    obtain_evaluation_episodes)
+                    obtain_evaluation_episodes, StepType)
 from garage.torch import global_device
 from garage.torch.algos import SAC
 
@@ -201,8 +204,8 @@ class MTSAC(SAC):
             epoch (int): The current training epoch.
 
         Returns:
-            float: The average return across self._num_evaluation_episodes
-                episodes
+            Dict[str, Dict[str, float]]: A dict containing statistics
+                about evaluation (see log_multitask_performance)
 
         """
         eval_eps = []
@@ -216,9 +219,9 @@ class MTSAC(SAC):
                     render_env = self._render_env,
                     deterministic=self._use_deterministic_evaluation))
         eval_eps = EpisodeBatch.concatenate(*eval_eps)
-        last_return = log_multitask_performance(epoch, eval_eps,
+        performance = log_multitask_performance(epoch, eval_eps,
                                                 self._discount)
-        return last_return
+        return performance
 
     def to(self, device=None):
         """Put all the networks within the model on device.
@@ -239,3 +242,54 @@ class MTSAC(SAC):
                 self._num_tasks).to(device).requires_grad_()
             self._alpha_optimizer = self._optimizer([self._log_alpha],
                                                     lr=self._policy_lr)
+    
+
+    def train(self, trainer):
+        """Obtain samplers and start actual training for each epoch.
+
+        Args:
+            trainer (Trainer): Gives the algorithm the access to
+                :method:`~Trainer.step_epochs()`, which provides services
+                such as snapshotting and sampler control.
+
+        Returns:
+            float: The average return in last epoch cycle.
+
+        """
+        if not self._eval_env:
+            self._eval_env = trainer.get_env_copy()
+        last_return = None
+        epoch_count = 0
+        for _ in trainer.step_epochs():
+            epoch_count += 1
+            for _ in tqdm(range(self._steps_per_epoch), desc=f"Epoch {epoch_count}"):
+                if not (self.replay_buffer.n_transitions_stored >=
+                        self._min_buffer_size):
+                    batch_size = int(self._min_buffer_size)
+                else:
+                    batch_size = None
+                trainer.step_episode = trainer.obtain_samples(
+                    trainer.step_itr, batch_size)
+                path_returns = []
+                for path in trainer.step_episode:
+                    self.replay_buffer.add_path(
+                        dict(observation=path['observations'],
+                             action=path['actions'],
+                             reward=path['rewards'].reshape(-1, 1),
+                             next_observation=path['next_observations'],
+                             terminal=np.array([
+                                 step_type == StepType.TERMINAL
+                                 for step_type in path['step_types']
+                             ]).reshape(-1, 1)))
+                    path_returns.append(sum(path['rewards']))
+                assert len(path_returns) == len(trainer.step_episode)
+                self.episode_rewards.append(np.mean(path_returns))
+                for _ in range(self._gradient_steps):
+                    policy_loss, qf1_loss, qf2_loss = self.train_once()
+            performance: Dict[str, Dict[str, float]] = self._evaluate_policy(trainer.step_itr)
+            last_return = performance['average']['average_return']
+            self._log_statistics(policy_loss, qf1_loss, qf2_loss)
+            tabular.record('TotalEnvSteps', trainer.total_env_steps)
+            trainer.step_itr += 1
+
+        return last_return

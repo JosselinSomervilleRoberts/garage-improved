@@ -451,8 +451,9 @@ class RL2(MetaRLAlgorithm, abc.ABC):
             ]
             name_map = dict(enumerate(names))
 
-        undiscounted_returns = log_multitask_performance(
+        performance = log_multitask_performance(
             itr, episodes, self._inner_algo._discount, name_map=name_map)
+        undiscounted_returns = performance['average']['undiscounted_returns']
 
         average_return = np.mean(undiscounted_returns)
 

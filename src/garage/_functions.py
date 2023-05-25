@@ -5,6 +5,7 @@ import time
 import click
 from dowel import tabular
 import numpy as np
+from typing import Dict
 
 from garage import EpisodeBatch, StepType
 from garage.np import discount_cumsum, stack_tensor_dict_list
@@ -210,10 +211,19 @@ def log_multitask_performance(itr, batch, discount, name_map=None):
             even if there are no episodes present for them.
 
     Returns:
-        numpy.ndarray: Undiscounted returns averaged across all tasks. Has
-            shape :math:`(N \bullet [T])`.
+        Dict[str, Dict[str, float]] : A dictionary mapping from task names to
+            dictionaries mapping from performance statistic names to their
+            values. The "average" key corresponds to the average performance
+            across all tasks.
+            The statistics include:
+            * average_return(float): Average return across all episodes.
+            * success_rate(float): Average success rate across all episodes.
+            * undiscounted_returns(numpy.ndarray): Undiscounted returns for
+                each episode.
+            * success(numpy.ndarray): Successes for each episode.
 
     """
+    performance: Dict[str, Dict[str, float]] = {}
     eps_by_name = defaultdict(list)
     for eps in batch.split():
         task_name = '__unnamed_task__'
@@ -231,10 +241,17 @@ def log_multitask_performance(itr, batch, discount, name_map=None):
     for task_name in task_names:
         if task_name in eps_by_name:
             episodes = eps_by_name[task_name]
-            log_performance(itr,
+            undiscounted_returns, success = log_performance(itr,
                             EpisodeBatch.concatenate(*episodes),
                             discount,
-                            prefix=task_name)
+                            prefix=task_name,
+                            return_success=True)
+            performance[task_name] = {
+                'average_return': np.mean(undiscounted_returns),
+                'success_rate': np.mean(success),
+                'undiscounted_returns': undiscounted_returns,
+                'success': success
+            }
         else:
             with tabular.prefix(task_name + '/'):
                 tabular.record('Iteration', itr)
@@ -247,10 +264,17 @@ def log_multitask_performance(itr, batch, discount, name_map=None):
                 tabular.record('TerminationRate', np.nan)
                 tabular.record('SuccessRate', np.nan)
 
-    return log_performance(itr, batch, discount=discount, prefix='Average')
+    avg_undiscounted_returns, avg_success = log_performance(itr, batch, discount=discount, prefix='Average', return_success=True)
+    performance['average'] = {
+        'average_return': np.mean(avg_undiscounted_returns),
+        'success_rate': np.mean(avg_success),
+        'undiscounted_returns': avg_undiscounted_returns,
+        'success': avg_success
+    }
+    return performance
 
 
-def log_performance(itr, batch, discount, prefix='Evaluation'):
+def log_performance(itr, batch, discount, prefix='Evaluation', return_success=False):
     """Evaluate the performance of an algorithm on a batch of episodes.
 
     Args:
@@ -258,9 +282,11 @@ def log_performance(itr, batch, discount, prefix='Evaluation'):
         batch (EpisodeBatch): The episodes to evaluate with.
         discount (float): Discount value, from algorithm's property.
         prefix (str): Prefix to add to all logged keys.
+        return_success (bool): If True, return success rates.
 
     Returns:
         numpy.ndarray: Undiscounted returns.
+        (Optional, if return_success==True) numpy.ndarray: Success rates.
 
     """
     returns = []
@@ -292,4 +318,6 @@ def log_performance(itr, batch, discount, prefix='Evaluation'):
         if success:
             tabular.record('SuccessRate', np.mean(success))
 
+    if return_success:
+        return undiscounted_returns, success
     return undiscounted_returns
