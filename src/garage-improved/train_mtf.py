@@ -63,7 +63,7 @@ except ImportError:
 
 # Training parameters
 @click.option('--timesteps', 'timesteps', type=int, default=20000000)
-@click.option('--epoch_cycles', 'epoch_cycles', type=int, default=8)
+@click.option('--num_training_batch_before_eval', 'num_training_batch_before_eval', type=int, default=8)
 @click.option('--use_gpu', 'use_gpu', type=bool, default=True)
 @click.option('--batch_size', 'batch_size', type=int, default=-1, help="Batch size. If -1, it will be set to int(env.spec.max_episode_length * n_workers).")
 
@@ -83,7 +83,7 @@ def metaworld_mtf(ctxt=None, *,
                     size_hidden_layers: int,
                     replay_buffer_size: int,
                     timesteps: int,
-                    epoch_cycles: int,
+                    num_training_batch_before_eval: int,
                     use_gpu: bool,
                     batch_size: int,
                     render_env: bool):
@@ -97,6 +97,7 @@ def metaworld_mtf(ctxt=None, *,
 
     # Verify arguments
     assert n_tasks <= 500, "n_tasks must be <= 500"
+    assert num_training_batch_before_eval > 0, "num_training_batch_before_eval must be > 0"
     assert algo in ["mtsac", "ppo", "trpo"], "algo must be either mtsac, ppo or trpo"
     assert sampler in ["local", "ray"], "sampler must be either local or ray"
 
@@ -148,7 +149,7 @@ def metaworld_mtf(ctxt=None, *,
     print("replay_buffer_size: {}".format(replay_buffer_size))
     print('')
     print("timesteps: {}".format(timesteps))
-    print("epoch_cycles: {} (MTSAC only)".format(epoch_cycles))
+    print("num_training_batch_before_eval: {} (MTSAC only)".format(num_training_batch_before_eval))
     print("use_gpu: {}".format(use_gpu))
     print("batch_size: {}".format(batch_size))
     print("epochs: {}".format(epochs))
@@ -213,9 +214,8 @@ def metaworld_mtf(ctxt=None, *,
 
     algo_object = None
     if algo == "mtsac":
-        num_evaluation_points = 500
-        epochs = epochs // epoch_cycles
-        print(f"Using MTSAC with {num_evaluation_points} evaluation points and {epoch_cycles} epoch cycles")
+        epochs = epochs // num_training_batch_before_eval
+        print(f"Using MTSAC. Evaluation every {num_training_batch_before_eval} training batches of size {batch_size}. Total of {epochs} epochs.")
         assert policy is not None
         assert qf1 is not None
         assert qf2 is not None
@@ -228,7 +228,7 @@ def metaworld_mtf(ctxt=None, *,
                     eval_env=mtf_test_envs,
                     env_spec=env.spec,
                     num_tasks=n_tasks,
-                    steps_per_epoch=epoch_cycles,
+                    steps_per_epoch=num_training_batch_before_eval,
                     replay_buffer=replay_buffer,
                     min_buffer_size=1500,
                     target_update_tau=5e-3,
