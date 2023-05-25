@@ -68,6 +68,8 @@ except ImportError:
 @click.option('--use_gpu', 'use_gpu', type=bool, default=True)
 @click.option('--batch_size', 'batch_size', type=int, default=-1, help="Batch size. If -1, it will be set to int(env.spec.max_episode_length * n_workers).")
 
+# Utils
+@click.option('--render_env', 'render_env', type=bool, default=False, help="Render the environment during training.")
 @wrap_experiment(snapshot_mode='gap', snapshot_gap=50)
 def metaworld_mtf(ctxt=None, *,
                     seed: int,
@@ -85,7 +87,8 @@ def metaworld_mtf(ctxt=None, *,
                     timesteps: int,
                     epoch_cycles: int,
                     use_gpu: bool,
-                    batch_size: int):
+                    batch_size: int,
+                    render_env: bool):
     """Train either MTSAC, PPO or TRPO with MTFlexible environment.
 
     Args:
@@ -153,6 +156,8 @@ def metaworld_mtf(ctxt=None, *,
     print("use_gpu: {}".format(use_gpu))
     print("batch_size: {}".format(batch_size))
     print("epochs: {}".format(epochs))
+    print('')
+    print("render_env: {}".format(render_env))
     print("======================================")
 
     policy, qf1, qf2, value_function = None, None, None, None
@@ -232,7 +237,8 @@ def metaworld_mtf(ctxt=None, *,
                     min_buffer_size=1500,
                     target_update_tau=5e-3,
                     discount=discount,
-                    buffer_batch_size=1280)
+                    buffer_batch_size=1280,
+                    render_env=render_env)
     elif algo == "ppo":
         print("Using PPO")
         assert policy is not None

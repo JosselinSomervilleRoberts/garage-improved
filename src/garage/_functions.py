@@ -71,6 +71,7 @@ def rollout(env,
             max_episode_length=np.inf,
             animated=False,
             pause_per_frame=None,
+            render_env=False,
             deterministic=False):
     """Sample a single episode of the agent in the environment.
 
@@ -109,6 +110,7 @@ def rollout(env,
     env_steps = []
     agent_infos = []
     observations = []
+    rendered_images = []
     last_obs, episode_infos = env.reset()
     agent.reset()
     episode_length = 0
@@ -124,6 +126,10 @@ def rollout(env,
         env_steps.append(es)
         observations.append(last_obs)
         agent_infos.append(agent_info)
+
+        if render_env:
+            rendered_images.append(np.swapaxes(env.render('human').T, 1, 2))
+
         episode_length += 1
         if es.last:
             break
@@ -137,6 +143,7 @@ def rollout(env,
         agent_infos=stack_tensor_dict_list(agent_infos),
         env_infos=stack_tensor_dict_list([es.env_info for es in env_steps]),
         dones=np.array([es.terminal for es in env_steps]),
+        rendered_images = np.array(rendered_images),
     )
 
 
@@ -144,6 +151,7 @@ def obtain_evaluation_episodes(policy,
                                env,
                                max_episode_length=1000,
                                num_eps=100,
+                               render_env=False,
                                deterministic=True):
     """Sample the policy for num_eps episodes and return average values.
 
@@ -162,6 +170,7 @@ def obtain_evaluation_episodes(policy,
 
     """
     episodes = []
+
     # Use a finite length rollout for evaluation.
 
     with click.progressbar(range(num_eps), label='Evaluating') as pbar:
@@ -169,10 +178,21 @@ def obtain_evaluation_episodes(policy,
             eps = rollout(env,
                           policy,
                           max_episode_length=max_episode_length,
+                          render_env=render_env,
                           deterministic=deterministic)
             episodes.append(eps)
+
+            if render_env:
+                task_name = env._env._task_name 
+                log_multitask_video(eps, task_name)
+
     return EpisodeBatch.from_list(env.spec, episodes)
 
+# Source: https://github.com/rlworkgroup/garage/commit/f47775ff4f1909f78cb9a959ae6d0dca20f71494#diff-1195798da4dd24e989dfe3d931c9df0162c3868e730021274d8ce610aa642ee1
+def log_multitask_video(eps, task_name):
+    video = eps["rendered_images"]
+    with tabular.prefix(task_name + '/'):
+        tabular.record('Video', video)
 
 def log_multitask_performance(itr, batch, discount, name_map=None):
     r"""Log performance of episodes from multiple tasks.
