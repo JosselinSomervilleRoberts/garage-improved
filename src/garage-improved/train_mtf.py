@@ -238,6 +238,10 @@ def metaworld_mtf(ctxt=None, *,
                     target_update_tau=5e-3,
                     discount=discount,
                     buffer_batch_size=1280,
+                    # The tasks we are using are not randomized, so if the agent succeeds once, it will succeed always.
+                    # (as long as the agent weights are not updated)
+                    # This means that there is not need to evaluate the agent multiple times per epoch.
+                    num_evaluation_episodes=1,
                     render_env=render_env)
     elif algo == "ppo":
         print("Using PPO")
