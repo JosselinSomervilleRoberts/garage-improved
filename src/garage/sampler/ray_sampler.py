@@ -11,6 +11,7 @@ import itertools
 
 import click
 import cloudpickle
+import math
 import psutil
 import ray
 
@@ -72,8 +73,14 @@ class RaySampler(Sampler):
                 seed=seed,
                 n_workers=n_workers,
                 worker_class=worker_class,
-                worker_args=worker_args)
-        self._sampler_worker = ray.remote(SamplerWorker)
+                worker_args=worker_args,
+            )
+        # Source: https://github.com/rlworkgroup/garage/commit/ef86d541edad6155e3383e4e58cf3e8f011c7ddb
+        n_workers_pow_2 = 2 ** math.ceil(math.log2(self._worker_factory.n_workers))
+        remote_wrapper = ray.remote(
+            num_gpus=1 / n_workers_pow_2, max_restarts=3, max_task_retries=3
+        )
+        self._sampler_worker = remote_wrapper(SamplerWorker)
         self._agents = agents
         self._envs = self._worker_factory.prepare_worker_messages(envs)
         self._all_workers = defaultdict(None)
