@@ -5,6 +5,8 @@ import time
 
 import cloudpickle
 from dowel import logger, tabular
+import numpy as np
+from typing import Optional
 
 # This is avoiding a circular import
 from garage.experiment.deterministic import get_seed, set_seed
@@ -174,7 +176,8 @@ class Trainer:
                         itr,
                         batch_size=None,
                         agent_update=None,
-                        env_update=None):
+                        env_update=None,
+                        task_distribution: Optional[np.ndarray] = None):
         """Obtain one batch of episodes.
 
         Args:
@@ -218,7 +221,8 @@ class Trainer:
         episodes = self._sampler.obtain_samples(
             itr, (batch_size or self._train_args.batch_size),
             agent_update=agent_update,
-            env_update=env_update)
+            env_update=env_update,
+            task_distribution=task_distribution)
         self._stats.total_env_steps += sum(episodes.lengths)
         return episodes
 
@@ -226,7 +230,8 @@ class Trainer:
                        itr,
                        batch_size=None,
                        agent_update=None,
-                       env_update=None):
+                       env_update=None,
+                       task_distribution: Optional[np.ndarray] = None):
         """Obtain one batch of samples.
 
         Args:
@@ -251,7 +256,7 @@ class Trainer:
             list[dict]: One batch of samples.
 
         """
-        eps = self.obtain_episodes(itr, batch_size, agent_update, env_update)
+        eps = self.obtain_episodes(itr, batch_size, agent_update, env_update, task_distribution)
         return eps.to_list()
 
     def save(self, epoch):

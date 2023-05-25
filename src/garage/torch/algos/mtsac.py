@@ -3,6 +3,7 @@
 import numpy as np
 import torch
 from tqdm import tqdm
+from toolbox.printing import sdebug
 from typing import Dict
 from dowel import tabular
 
@@ -106,7 +107,14 @@ class MTSAC(SAC):
         steps_per_epoch=1,
         num_evaluation_episodes=5,
         use_deterministic_evaluation=True,
-        render_env = False
+        render_env = False,
+        # With a filter success rate factor of 1.0, the success rate is
+        # will always be filtered to 0., which means that the sampling
+        # will be uniform for each task (default behavior)
+        filter_success_rate_factor = 1.0,
+        # Each task will be sampled with a probability proportional to
+        # (1 - filtered_success_rate[task]) ** sampling_factor_success_rate
+        sampling_factor_success_rate = 1.0,
     ):
 
         super().__init__(
@@ -133,6 +141,10 @@ class MTSAC(SAC):
             num_evaluation_episodes=num_evaluation_episodes,
             eval_env=eval_env,
             use_deterministic_evaluation=use_deterministic_evaluation)
+        # Task sampling based on success rate parameters
+        self._filter_success_rate_factor = filter_success_rate_factor
+        self._sampling_factor_success_rate = sampling_factor_success_rate
+
         self._num_tasks = num_tasks
         self._eval_env = eval_env
         self._use_automatic_entropy_tuning = fixed_alpha is None
@@ -260,6 +272,7 @@ class MTSAC(SAC):
             self._eval_env = trainer.get_env_copy()
         last_return = None
         epoch_count = 0
+        filtered_success_rate = [0.0] * self._num_tasks
         for _ in trainer.step_epochs():
             epoch_count += 1
             for _ in tqdm(range(self._steps_per_epoch), desc=f"Epoch {epoch_count}"):
@@ -268,8 +281,12 @@ class MTSAC(SAC):
                     batch_size = int(self._min_buffer_size)
                 else:
                     batch_size = None
+                # Sample each task proportionally to (1 - success_rate) ** sampling_factor_success_rate
+                coefficient = np.array([1.0 - filtered_success_rate[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                coefficient = coefficient / np.sum(coefficient)
+                sdebug(coefficient)
                 trainer.step_episode = trainer.obtain_samples(
-                    trainer.step_itr, batch_size)
+                    trainer.step_itr, batch_size, task_distribution = coefficient)
                 path_returns = []
                 for path in trainer.step_episode:
                     self.replay_buffer.add_path(
@@ -288,6 +305,11 @@ class MTSAC(SAC):
                     policy_loss, qf1_loss, qf2_loss = self.train_once()
             performance: Dict[str, Dict[str, float]] = self._evaluate_policy(trainer.step_itr)
             last_return = performance['average']['average_return']
+            # For each task, we get the success_rate (exclude average from performance)
+            success_rate = [performance[task]['success_rate'] for task in performance.keys() if task != 'average']
+            filtered_success_rate = [self._filter_success_rate_factor * filtered_success_rate[i] + (1 - self._filter_success_rate_factor) * success_rate[i] for i in range(self._num_tasks)]
+            sdebug(success_rate)
+            sdebug(filtered_success_rate)
             self._log_statistics(policy_loss, qf1_loss, qf2_loss)
             tabular.record('TotalEnvSteps', trainer.total_env_steps)
             trainer.step_itr += 1

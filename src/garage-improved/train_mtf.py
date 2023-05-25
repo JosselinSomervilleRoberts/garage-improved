@@ -242,7 +242,8 @@ def metaworld_mtf(ctxt=None, *,
                     # (as long as the agent weights are not updated)
                     # This means that there is not need to evaluate the agent multiple times per epoch.
                     num_evaluation_episodes=1,
-                    render_env=render_env)
+                    render_env=render_env,
+                    filter_success_rate_factor=0.8)
     elif algo == "ppo":
         print("Using PPO")
         assert policy is not None

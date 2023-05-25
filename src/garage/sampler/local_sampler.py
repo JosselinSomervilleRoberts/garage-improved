@@ -1,7 +1,10 @@
 """Sampler that runs workers in the main process."""
 import copy
 
+import numpy as np
 import psutil
+from toolbox.printing import sdebug
+from typing import List, Optional
 
 from garage import EpisodeBatch
 from garage.experiment.deterministic import get_seed
@@ -131,7 +134,7 @@ class LocalSampler(Sampler):
             worker.update_agent(agent_up)
             worker.update_env(env_up)
 
-    def obtain_samples(self, itr, num_samples, agent_update, env_update=None):
+    def obtain_samples(self, itr, num_samples, agent_update, env_update=None, task_distribution: Optional[np.ndarray] = None):
         """Collect at least a given number transitions (timesteps).
 
         Args:
@@ -147,6 +150,10 @@ class LocalSampler(Sampler):
                 `env_update_fn` before sampling episodes. If a list is passed
                 in, it must have length exactly `factory.n_workers`, and will
                 be spread across the workers.
+            task_distribution (np.ndarray): Only relevant for multitask
+                environments. If provided, the tasks will be distributed
+                according to this distribution. If not provided, the tasks
+                will be distributed uniformly.
 
         Returns:
             EpisodeBatch: The batch of collected episodes.
@@ -155,15 +162,41 @@ class LocalSampler(Sampler):
         self._update_workers(agent_update, env_update)
         batches = []
         completed_samples = 0
-        while True:
-            for worker in self._workers:
+
+        samples_per_worker = [0] * len(self._workers)
+        continue_sampling = True
+        while continue_sampling:
+            # If the task distribution is uniform (checked by computing the standard deviation)
+            # we can round robin the workers to get a more uniform distribution
+            # which is what is done in the original implementation (the else below)
+            if task_distribution is not None and np.std(task_distribution) > 1e-6:
+                # Here we assume that there is one worker per task
+                # We sample worker in self._workers with probability
+                # task_distribution[i] (the sum is already normalized)
+                idx: int = np.random.choice(len(self._workers), p=task_distribution)
+                worker = self._workers[idx]
                 batch = worker.rollout()
                 completed_samples += len(batch.actions)
+                samples_per_worker[idx] += len(batch.actions)
                 batches.append(batch)
                 if completed_samples >= num_samples:
-                    samples = EpisodeBatch.concatenate(*batches)
-                    self.total_env_steps += sum(samples.lengths)
-                    return samples
+                    continue_sampling = False
+                    break
+            else:
+                for idx, worker in enumerate(self._workers):
+                    batch = worker.rollout()
+                    completed_samples += len(batch.actions)
+                    samples_per_worker[idx] += len(batch.actions)
+                    batches.append(batch)
+                    if completed_samples >= num_samples:
+                        continue_sampling = False
+                        break
+                    
+        assert completed_samples >= num_samples, "Not enough samples collected"
+        sdebug(samples_per_worker)
+        samples = EpisodeBatch.concatenate(*batches)
+        self.total_env_steps += sum(samples.lengths)
+        return samples
 
     def obtain_exact_episodes(self,
                               n_eps_per_worker,
