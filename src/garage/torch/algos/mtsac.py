@@ -3,7 +3,6 @@
 import numpy as np
 import torch
 from tqdm import tqdm
-from toolbox.printing import sdebug
 from typing import Dict
 from dowel import tabular
 
@@ -273,6 +272,7 @@ class MTSAC(SAC):
         last_return = None
         epoch_count = 0
         filtered_success_rate = [0.0] * self._num_tasks
+        task_names = []
         for _ in trainer.step_epochs():
             epoch_count += 1
             for _ in tqdm(range(self._steps_per_epoch), desc=f"Epoch {epoch_count}"):
@@ -284,9 +284,14 @@ class MTSAC(SAC):
                 # Sample each task proportionally to (1 - success_rate) ** sampling_factor_success_rate
                 coefficient = np.array([1.0 - filtered_success_rate[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
                 coefficient = coefficient / np.sum(coefficient)
-                sdebug(coefficient)
-                trainer.step_episode = trainer.obtain_samples(
-                    trainer.step_itr, batch_size, task_distribution = coefficient)
+                trainer.step_episode, sample_distribution = trainer.obtain_samples(
+                    trainer.step_itr, batch_size, task_distribution = coefficient, return_sample_distribution=True)
+                # Log the coefficient for each task if we have the task names
+                if len(task_names) == self._num_tasks:
+                    for idx, task in enumerate(task_names):
+                        with tabular.prefix(task + '/'):
+                            tabular.record('SamplingProbability', coefficient[idx])
+                            tabular.record('SampleDistribution', sample_distribution[idx])
                 path_returns = []
                 for path in trainer.step_episode:
                     self.replay_buffer.add_path(
@@ -306,10 +311,15 @@ class MTSAC(SAC):
             performance: Dict[str, Dict[str, float]] = self._evaluate_policy(trainer.step_itr)
             last_return = performance['average']['average_return']
             # For each task, we get the success_rate (exclude average from performance)
-            success_rate = [performance[task]['success_rate'] for task in performance.keys() if task != 'average']
+            if len(task_names) == 0:
+                for task in performance.keys():
+                    if task != 'average':
+                        task_names.append(task)
+            success_rate = [performance[task]['success_rate'] for task in task_names]
             filtered_success_rate = [self._filter_success_rate_factor * filtered_success_rate[i] + (1 - self._filter_success_rate_factor) * success_rate[i] for i in range(self._num_tasks)]
-            sdebug(success_rate)
-            sdebug(filtered_success_rate)
+            for idx, task in enumerate(task_names):
+                with tabular.prefix(task + '/'):
+                    tabular.record('FilteredSuccessRate', filtered_success_rate[idx])
             self._log_statistics(policy_loss, qf1_loss, qf2_loss)
             tabular.record('TotalEnvSteps', trainer.total_env_steps)
             trainer.step_itr += 1

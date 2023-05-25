@@ -177,7 +177,8 @@ class Trainer:
                         batch_size=None,
                         agent_update=None,
                         env_update=None,
-                        task_distribution: Optional[np.ndarray] = None):
+                        task_distribution: Optional[np.ndarray] = None,
+                        return_sample_distribution: bool = False):
         """Obtain one batch of episodes.
 
         Args:
@@ -192,6 +193,12 @@ class Trainer:
                 `env_update_fn` before sampling episodes. If a list is passed
                 in, it must have length exactly `factory.n_workers`, and will
                 be spread across the workers.
+            task_distribution (Optional[np.ndarray]): Only relevant for multitask
+                environments. If provided, the tasks will be distributed
+                according to this distribution. If not provided, the tasks
+                will be distributed uniformly.
+            return_sample_distribution (bool): Whether to return the sample
+                distribution (i.e. the number of samples per worker)
 
         Raises:
             ValueError: If the trainer was initialized without a sampler, or
@@ -222,7 +229,8 @@ class Trainer:
             itr, (batch_size or self._train_args.batch_size),
             agent_update=agent_update,
             env_update=env_update,
-            task_distribution=task_distribution)
+            task_distribution=task_distribution,
+            return_sample_distribution=return_sample_distribution)
         self._stats.total_env_steps += sum(episodes.lengths)
         return episodes
 
@@ -231,7 +239,8 @@ class Trainer:
                        batch_size=None,
                        agent_update=None,
                        env_update=None,
-                       task_distribution: Optional[np.ndarray] = None):
+                       task_distribution: Optional[np.ndarray] = None,
+                       return_sample_distribution: bool = False):
         """Obtain one batch of samples.
 
         Args:
@@ -246,6 +255,12 @@ class Trainer:
                 `env_update_fn` before sampling episodes. If a list is passed
                 in, it must have length exactly `factory.n_workers`, and will
                 be spread across the workers.
+            task_distribution (Optional[np.ndarray]): Only relevant for multitask
+                environments. If provided, the tasks will be distributed
+                according to this distribution. If not provided, the tasks
+                will be distributed uniformly.
+            return_sample_distribution (bool): Whether to return the sample
+                distribution (i.e. the number of samples per worker)
 
         Raises:
             ValueError: Raised if the trainer was initialized without a
@@ -256,7 +271,7 @@ class Trainer:
             list[dict]: One batch of samples.
 
         """
-        eps = self.obtain_episodes(itr, batch_size, agent_update, env_update, task_distribution)
+        eps = self.obtain_episodes(itr, batch_size, agent_update, env_update, task_distribution, return_sample_distribution)
         return eps.to_list()
 
     def save(self, epoch):

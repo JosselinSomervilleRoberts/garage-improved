@@ -3,7 +3,6 @@ import copy
 
 import numpy as np
 import psutil
-from toolbox.printing import sdebug
 from typing import List, Optional
 
 from garage import EpisodeBatch
@@ -134,7 +133,7 @@ class LocalSampler(Sampler):
             worker.update_agent(agent_up)
             worker.update_env(env_up)
 
-    def obtain_samples(self, itr, num_samples, agent_update, env_update=None, task_distribution: Optional[np.ndarray] = None):
+    def obtain_samples(self, itr, num_samples, agent_update, env_update=None, task_distribution: Optional[np.ndarray] = None, return_sample_distribution: bool = False):
         """Collect at least a given number transitions (timesteps).
 
         Args:
@@ -150,10 +149,12 @@ class LocalSampler(Sampler):
                 `env_update_fn` before sampling episodes. If a list is passed
                 in, it must have length exactly `factory.n_workers`, and will
                 be spread across the workers.
-            task_distribution (np.ndarray): Only relevant for multitask
+            task_distribution (Optional[np.ndarray]): Only relevant for multitask
                 environments. If provided, the tasks will be distributed
                 according to this distribution. If not provided, the tasks
                 will be distributed uniformly.
+            return_sample_distribution (bool): Whether to return the sample
+                distribution (i.e. the number of samples per worker)
 
         Returns:
             EpisodeBatch: The batch of collected episodes.
@@ -193,9 +194,10 @@ class LocalSampler(Sampler):
                         break
                     
         assert completed_samples >= num_samples, "Not enough samples collected"
-        sdebug(samples_per_worker)
         samples = EpisodeBatch.concatenate(*batches)
         self.total_env_steps += sum(samples.lengths)
+        if return_sample_distribution:
+            return samples, samples_per_worker
         return samples
 
     def obtain_exact_episodes(self,
