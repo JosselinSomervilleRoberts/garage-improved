@@ -6,6 +6,7 @@ from dowel import tabular
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 # yapf: disable
 from garage import log_performance, obtain_evaluation_episodes, StepType
@@ -200,8 +201,10 @@ class SAC(RLAlgorithm):
         if not self._eval_env:
             self._eval_env = trainer.get_env_copy()
         last_return = None
+        epoch_count = 0
         for _ in trainer.step_epochs():
-            for _ in range(self._steps_per_epoch):
+            epoch_count += 1
+            for _ in tqdm(range(self._steps_per_epoch), desc=f"Epoch {epoch_count}"):
                 if not (self.replay_buffer.n_transitions_stored >=
                         self._min_buffer_size):
                     batch_size = int(self._min_buffer_size)
