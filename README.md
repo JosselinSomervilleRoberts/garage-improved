@@ -10,6 +10,9 @@
 To install run:
 ```bash
 pip install -e ".[dm_control,mujoco]"
+pip install git+https://github.com/Farama-Foundation/Metaworld.git@master#egg=metaworld
+pip install 'gym[box2d]'
+pip install git+https://github.com/JosselinSomervilleRoberts/JossPythonToolbox.git
 ```
 
 # garage
