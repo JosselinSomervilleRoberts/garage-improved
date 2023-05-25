@@ -49,7 +49,6 @@ except ImportError:
 # Parallelism
 @click.option('--sampler', 'sampler', type=str, default="local", help="Sampler to use. Can be either local or ray.")
 @click.option('--n_tasks', 'n_tasks', type=int, default=3, help="Number of tasks to use in the benchmarks. Use 10 for MT10 and 3 for MT3.")
-@click.option('--n_redundance', 'n_redundance', type=int, default=1, help="Number of times to duplicate each task. With n_tasks = 3 and n_redundance= 4, we will simulate 12 environments (then duplicated again with n_envs).")
 @click.option('--n_workers', type=int, default=-1, help="Number of workers to use. If -1, it will be set to psutil.cpu_count(logical=False)")
 @click.option('--n_envs', 'n_envs', type=int, default=2, help="Number of environments per worker. Each environment is approximately ~50mb large. So n_tasks * n_parallel * n_envs * 50mb should give you an idea of the memory usage.")
 
@@ -76,7 +75,6 @@ def metaworld_mtf(ctxt=None, *,
                     shutdown: bool,
                     sampler: str,
                     n_tasks: int,
-                    n_redundance: int,
                     n_workers: int,
                     n_envs: int,
                     algo: str,
@@ -98,8 +96,7 @@ def metaworld_mtf(ctxt=None, *,
     """
 
     # Verify arguments
-    assert n_redundance >= 1, "n_redundance must be >= 1"
-    assert n_redundance * n_tasks <= 500, "n_redundance * n_tasks must be <= 500"
+    assert n_tasks <= 500, "n_tasks must be <= 500"
     assert algo in ["mtsac", "ppo", "trpo"], "algo must be either mtsac, ppo or trpo"
     assert sampler in ["local", "ray"], "sampler must be either local or ray"
 
@@ -120,7 +117,7 @@ def metaworld_mtf(ctxt=None, *,
     test_task_sampler = MetaWorldTaskSampler(mtf_test,
                                              'train',
                                              add_env_onehot=True)
-    mtf_train_envs = train_task_sampler.sample(n_tasks * n_redundance)
+    mtf_train_envs = train_task_sampler.sample(n_tasks)
     env = mtf_train_envs[0]()
     mtf_test_envs = [env_up() for env_up in test_task_sampler.sample(n_tasks)]
     
@@ -129,7 +126,7 @@ def metaworld_mtf(ctxt=None, *,
     if n_workers < 0:
         n_workers = psutil.cpu_count(logical=False)
         if algo == "mtsac":
-            n_workers = n_tasks * n_redundance
+            n_workers = n_tasks
     if batch_size < 0:
         batch_size = int(env.spec.max_episode_length * n_workers)
     epochs = timesteps // batch_size
@@ -140,7 +137,6 @@ def metaworld_mtf(ctxt=None, *,
     print('')
     print("sampler: {}".format(sampler))
     print("n_tasks: {}".format(n_tasks))
-    print("n_redundance: {}".format(n_redundance))
     print("n_workers: {}".format(n_workers))
     print("n_envs: {}".format(n_envs))
     print('')
@@ -202,7 +198,7 @@ def metaworld_mtf(ctxt=None, *,
             agents=policy,
             envs=mtf_train_envs,
             max_episode_length=env.spec.max_episode_length,
-            n_workers=n_tasks * n_redundance,
+            n_workers=n_tasks,
             worker_class=FragmentWorker,
             worker_args=dict(n_envs=n_envs))
     elif sampler == "ray":
@@ -231,7 +227,7 @@ def metaworld_mtf(ctxt=None, *,
                     gradient_steps_per_itr=env.spec.max_episode_length,
                     eval_env=mtf_test_envs,
                     env_spec=env.spec,
-                    num_tasks=n_tasks * n_redundance,
+                    num_tasks=n_tasks,
                     steps_per_epoch=epoch_cycles,
                     replay_buffer=replay_buffer,
                     min_buffer_size=1500,
