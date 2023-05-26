@@ -61,12 +61,12 @@ MTFLEXIBLE_V2 = OrderedDict(
      ('pick-place-v2', SawyerPickPlaceEnvV2)),)
      
 class MTFlexible(metaworld.Benchmark):
-    def __init__(self, n: int, seed=None):
+    def __init__(self, n: int, increasing_difficulty: bool = True, seed=None):
         super().__init__()
         assert n >= 2, "n must be >= 2, otherwise it is not multi-task"
         assert n <= 10, "n must be <= 10, as it currently uses MT10"
         # Keep the first n tasks of MTN_V2
-        self._train_classes = OrderedDict(list(MTFLEXIBLE_V2.items())[:n])
+        self._train_classes = OrderedDict(list(MTFLEXIBLE_V2.items())[:n]) if increasing_difficulty else OrderedDict(list(MTFLEXIBLE_V2.items())[-n:])
         self._test_classes = OrderedDict()
         train_kwargs = {key: dict(args=[],
                                     kwargs={'task_id': list(_env_dict.ALL_V2_ENVIRONMENTS.keys()).index(key)})
