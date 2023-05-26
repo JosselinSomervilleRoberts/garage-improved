@@ -13,6 +13,7 @@ warnings.filterwarnings("ignore")
 import click
 import numpy as np
 import psutil
+from typing import Optional
 
 import torch
 from torch import nn
@@ -46,9 +47,13 @@ except ImportError:
 @click.option('--seed', 'seed', type=int, default=1)
 @click.option('--shutdown', 'shutdown', type=bool, default=False, help="Shutdown the AWS instance after the experiment.")
 
+# Environment
+@click.option('--n_tasks', 'n_tasks', type=int, default=3, help="Number of tasks to use in the benchmarks. Use 10 for MT10 and 3 for MT3.")
+@click.option('--increasing_difficulty', 'increasing_difficulty', type=bool, default=True, help="Whether to use the tasks in increasing difficulty order or not.")
+@click.option('--task_name', 'task_name', type=Optional[str], default=None, help="Task name if n_tasks == 1.")
+
 # Parallelism
 @click.option('--sampler', 'sampler', type=str, default="local", help="Sampler to use. Can be either local or ray.")
-@click.option('--n_tasks', 'n_tasks', type=int, default=3, help="Number of tasks to use in the benchmarks. Use 10 for MT10 and 3 for MT3.")
 @click.option('--n_workers', type=int, default=-1, help="Number of workers to use. If -1, it will be set to psutil.cpu_count(logical=False)")
 @click.option('--n_envs', 'n_envs', type=int, default=2, help="Number of environments per worker. Each environment is approximately ~50mb large. So n_tasks * n_parallel * n_envs * 50mb should give you an idea of the memory usage.")
 
@@ -72,12 +77,24 @@ except ImportError:
 @click.option('--use_wandb', 'use_wandb', type=bool, default=False, help="Log with wandb.")
 @click.option('--run_name', 'run_name', type=str, default="", help="Name of the run. Only used when log_with is wandb.")
 @click.option('--run_notes', 'run_notes', type=str, default="", help="Notes of the run. Only used when log_with is wandb.")
+
+# Improvements
+@click.option('--use_pcgrad', 'use_pcgrad', type=bool, default=False, help="Whether to use PCGrad or not.")
+@click.option('--use_proj_layer', 'use_proj_layer', type=bool, default=False, help="Whether to use projected layers or not.")
+@click.option('--proj_layer_size', 'proj_layer_size', type=int, default=0, help="Size of the projected layers.")
+@click.option('--sampling_alpha', 'sampling_alpha', type=float, default=0.5, help="Alpha parameter for the sampling distribution.")
+@click.option('--sampling_beta', 'sampling_beta', type=float, default=0.5, help="Beta parameter for the sampling distribution.")
+@click.option('--sampling_gamma', 'sampling_gamma', type=float, default=1.0, help="Gamma parameter for the sampling distribution.")
+@click.option('--sampling_delta', 'sampling_delta', type=float, default=0.8, help="Delta parameter for the sampling distribution.")
+@click.option('--sampling_epsilon', 'sampling_epsilon', type=float, default=0.2, help="Epsilon parameter for the sampling distribution.")
 @wrap_experiment(snapshot_mode='gap', snapshot_gap=50)
 def metaworld_mtf(ctxt=None, *,
                     seed: int,
                     shutdown: bool,
-                    sampler: str,
                     n_tasks: int,
+                    increasing_difficulty: bool,
+                    task_name: Optional[str],
+                    sampler: str,
                     n_workers: int,
                     n_envs: int,
                     algo: str,
@@ -92,7 +109,15 @@ def metaworld_mtf(ctxt=None, *,
                     render_env: bool,
                     use_wandb: bool,
                     run_name: str,
-                    run_notes: str):
+                    run_notes: str,
+                    use_pcgrad: bool,
+                    use_proj_layer: bool,
+                    proj_layer_size: int,
+                    sampling_alpha: float,
+                    sampling_beta: float,
+                    sampling_gamma: float,
+                    sampling_delta: float,
+                    sampling_epsilon: float):
     """Train either MTSAC, PPO or TRPO with MTFlexible environment.
 
     Args:
@@ -106,12 +131,16 @@ def metaworld_mtf(ctxt=None, *,
     assert num_training_batch_before_eval > 0, "num_training_batch_before_eval must be > 0"
     assert algo in ["mtsac", "ppo", "trpo"], "algo must be either mtsac, ppo or trpo"
     assert sampler in ["local", "ray"], "sampler must be either local or ray"
+    if n_tasks > 1:
+        assert task_name is None, "task_name must be None if n_tasks > 1"
+    else:
+        assert task_name is not None, "task_name must be not None if n_tasks == 1"
 
     # Set up experiment
     deterministic.set_seed(seed)
     trainer = Trainer(ctxt)
-    mtf = MTFlexible(n=n_tasks)  # pylint: disable=no-member
-    mtf_test = MTFlexible(n=n_tasks)  # pylint: disable=no-member
+    mtf = MTFlexible(n=n_tasks, task_name=task_name)  # pylint: disable=no-member
+    mtf_test = MTFlexible(n=n_tasks, task_name=task_name)  # pylint: disable=no-member
 
     # pylint: disable=missing-return-doc, missing-return-type-doc
     def wrap(env, _):
@@ -141,9 +170,13 @@ def metaworld_mtf(ctxt=None, *,
     # Print arguments
     print("============= Arguments =============")
     print("seed: {}".format(seed))
+    print("shutdown: {}".format(shutdown))
+    print('')
+    print("n_tasks: {}".format(n_tasks))
+    print("increasing_difficulty: {}".format(increasing_difficulty))
+    print("task_name: {}".format(task_name))
     print('')
     print("sampler: {}".format(sampler))
-    print("n_tasks: {}".format(n_tasks))
     print("n_workers: {}".format(n_workers))
     print("n_envs: {}".format(n_envs))
     print('')
@@ -164,6 +197,15 @@ def metaworld_mtf(ctxt=None, *,
     print("use_wandb: {}".format(use_wandb))
     print("run_name: {}".format(run_name))
     print("run_notes: {}".format(run_notes))
+    print('')
+    print("use_pcgrad: {}".format(use_pcgrad))
+    print("use_proj_layer: {}".format(use_proj_layer))
+    print("proj_layer_size: {}".format(proj_layer_size))
+    print("sampling_alpha: {}".format(sampling_alpha))
+    print("sampling_beta: {}".format(sampling_beta))
+    print("sampling_gamma: {}".format(sampling_gamma))
+    print("sampling_delta: {}".format(sampling_delta))
+    print("sampling_epsilon: {}".format(sampling_epsilon))
     print("======================================")
 
     # Log with wandb
@@ -176,8 +218,10 @@ def metaworld_mtf(ctxt=None, *,
             notes=run_notes,
             config={
                 "seed": seed,
-                "sampler": sampler,
                 "n_tasks": n_tasks,
+                "increasing_difficulty": increasing_difficulty,
+                "task_name": task_name,
+                "sampler": sampler,
                 "n_workers": n_workers,
                 "n_envs": n_envs,
                 "algo": algo,
@@ -190,7 +234,15 @@ def metaworld_mtf(ctxt=None, *,
                 "use_gpu": use_gpu,
                 "batch_size": batch_size,
                 "epochs": epochs,
-                "render_env": render_env
+                "render_env": render_env,
+                "use_pcgrad": use_pcgrad,
+                "use_proj_layer": use_proj_layer,
+                "proj_layer_size": proj_layer_size,
+                "sampling_alpha": sampling_alpha,
+                "sampling_beta": sampling_beta,
+                "sampling_gamma": sampling_gamma,
+                "sampling_delta": sampling_delta,
+                "sampling_epsilon": sampling_epsilon,
             }
         )
         tabular.set_wandb(use_wandb=True, wandb_step_factor=batch_size*num_training_batch_before_eval)
@@ -277,7 +329,11 @@ def metaworld_mtf(ctxt=None, *,
                     # This means that there is not need to evaluate the agent multiple times per epoch.
                     num_evaluation_episodes=1,
                     render_env=render_env,
-                    filter_success_rate_factor=0.8)
+                    sampling_alpha=sampling_alpha,
+                    sampling_beta=sampling_beta,
+                    sampling_gamma=sampling_gamma,
+                    sampling_delta=sampling_delta,
+                    sampling_epsilon=sampling_epsilon)
     elif algo == "ppo":
         print("Using PPO")
         assert policy is not None

@@ -10,6 +10,8 @@ from garage import (EpisodeBatch, log_multitask_performance,
                     obtain_evaluation_episodes, StepType)
 from garage.torch import global_device
 from garage.torch.algos import SAC
+from sympy.stats.sampling.tests.test_sample_continuous_rv import test_sampling_gamma_inverse
+from matplotlib.colors import same_color
 
 # yapf: enable
 
@@ -107,13 +109,25 @@ class MTSAC(SAC):
         num_evaluation_episodes=5,
         use_deterministic_evaluation=True,
         render_env = False,
-        # With a filter success rate factor of 1.0, the success rate is
-        # will always be filtered to 0., which means that the sampling
-        # will be uniform for each task (default behavior)
-        filter_success_rate_factor = 1.0,
-        # Each task will be sampled with a probability proportional to
-        # (1 - filtered_success_rate[task]) ** sampling_factor_success_rate
-        sampling_factor_success_rate = 1.0,
+        # α: Factor of the success rate coefficient that is used to sample
+        # each task. The coefficient is proportional to
+        # (1 + ε - capped_filtered_success_rate[task]) ** γ
+        # with capped_filtered_success_rate[task] = 0 if filtered_success_rate[task] < ε
+        # and capped_filtered_success_rate[task] = filtered_success_rate[task] otherwise
+        sampling_alpha = 0.5,
+        # β: Factor of the undiscounted return coefficient that is used to sample
+        # each task. The coefficient is proportional to
+        # (1000/(filtered_avg_discounted_return[task] + 50)) ** γ
+        sampling_beta = 0.5,
+        # γ: Exponent used for the coefficients
+        sampling_gamma = 1.0,
+        # δ: Filter coefficient for the success rate and the average discounted return
+        # filtered_success_rate[task] = δ * filtered_success_rate[task] + (1 - δ) * success_rate[task]
+        # Same for filtered_avg_discounted_return
+        sampling_delta = 0.8,
+        # ε: Minimum probability of sampling each task: ε / num_tasks
+        # Also used to compute capped_filtered_success_rate
+        sampling_epsilon = 0.2,
     ):
 
         super().__init__(
@@ -141,8 +155,11 @@ class MTSAC(SAC):
             eval_env=eval_env,
             use_deterministic_evaluation=use_deterministic_evaluation)
         # Task sampling based on success rate parameters
-        self._filter_success_rate_factor = filter_success_rate_factor
-        self._sampling_factor_success_rate = sampling_factor_success_rate
+        self._sampling_alpha = sampling_alpha
+        self._sampling_beta = sampling_beta
+        self._sampling_gamma = sampling_gamma
+        self._sampling_filter_factor = sampling_delta
+        self._sampling_epsilon = sampling_epsilon
 
         self._num_tasks = num_tasks
         self._eval_env = eval_env
@@ -283,22 +300,22 @@ class MTSAC(SAC):
                 else:
                     batch_size = None
                 # Sample each task proportionally to (1 - success_rate) ** sampling_factor_success_rate
-                # coefficient = np.array([1.2 - filtered_success_rate[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                # coefficient = np.array([1. + ε - filtered_success_rate[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
                 # Sample each task proportionally to (1000/(avg_discounted_return + 50)) ** sampling_factor_success_rate
                 # Then the heuristic are normalized, making sure that the sum of the coefficient is 1.
                 # We then add a second term: coefficient_success that is proportional to
-                # (1.2 - x[i]) ** sampling_factor_success_rate
-                # with x[i] = 0. if filtered_success_rate[i] < 0.4, and x[i] = filtered_success_rate[i] otherwise
+                # (1. + ε - x[i]) ** sampling_factor_success_rate
+                # with x[i] = 0. if filtered_success_rate[i] < ε, and x[i] = filtered_success_rate[i] otherwise
                 # The final coefficient is the sum of the two terms, normalized to sum to 1.
-                # Additionally, each task must probability of at least 0.2 / self._num_tasks
-                coefficient_return = np.array([1000.0 / (filtered_avg_discounted_return[i] + 50.0) for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                # Additionally, each task must probability of at least ε / self._num_tasks
+                coefficient_return = np.array([1000.0 / (filtered_avg_discounted_return[i] + 50.0) for i in range(self._num_tasks)]) ** self._sampling_gamma
                 coefficient_return = coefficient_return / np.sum(coefficient_return)
-                x = np.array([0.0 if filtered_success_rate[i] < 0.4 else filtered_success_rate[i] for i in range(self._num_tasks)])
-                coefficient_success = np.array([1.2 - x[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                x = np.array([0.0 if filtered_success_rate[i] < self._sampling_epsilon else filtered_success_rate[i] for i in range(self._num_tasks)])
+                coefficient_success = np.array([1. + self._sampling_epsilon - x[i] for i in range(self._num_tasks)]) ** self._sampling_gamma
                 coefficient_success = coefficient_success / np.sum(coefficient_success)
-                coefficient = coefficient_return + coefficient_success
-                coefficient = 0.8 * coefficient / np.sum(coefficient)
-                coefficient += 0.2 / self._num_tasks
+                coefficient = (self._sampling_beta * coefficient_return + self._sampling_alpha * coefficient_success) / (self._sampling_alpha + self._sampling_beta)
+                coefficient = (1 - self._sampling_epsilon) * coefficient / np.sum(coefficient)
+                coefficient += self._sampling_epsilon / self._num_tasks
                 assert np.abs(np.sum(coefficient) - 1.0) < 1e-6
 
                 trainer.step_episode, sample_distribution = trainer.obtain_samples(
@@ -335,9 +352,9 @@ class MTSAC(SAC):
                     if task != 'average':
                         task_names.append(task)
             success_rate = [performance[task]['success_rate'] for task in task_names]
-            filtered_success_rate = [self._filter_success_rate_factor * filtered_success_rate[i] + (1 - self._filter_success_rate_factor) * success_rate[i] for i in range(self._num_tasks)]
+            filtered_success_rate = [self._sampling_filter_factor * filtered_success_rate[i] + (1 - self._sampling_filter_factor) * success_rate[i] for i in range(self._num_tasks)]
             avg_discounted_return = [performance[task]['average_discounted_return'] for task in task_names]
-            filtered_avg_discounted_return = [self._filter_success_rate_factor * filtered_avg_discounted_return[i] + (1 - self._filter_success_rate_factor) * avg_discounted_return[i] for i in range(self._num_tasks)]
+            filtered_avg_discounted_return = [self._sampling_filter_factor * filtered_avg_discounted_return[i] + (1 - self._sampling_filter_factor) * avg_discounted_return[i] for i in range(self._num_tasks)]
 
             for idx, task in enumerate(task_names):
                 with tabular.prefix(task + '/'):
