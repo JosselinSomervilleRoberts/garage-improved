@@ -50,7 +50,7 @@ except ImportError:
 # Environment
 @click.option('--n_tasks', 'n_tasks', type=int, default=3, help="Number of tasks to use in the benchmarks. Use 10 for MT10 and 3 for MT3.")
 @click.option('--increasing_difficulty', 'increasing_difficulty', type=bool, default=True, help="Whether to use the tasks in increasing difficulty order or not.")
-@click.option('--task_name', 'task_name', type=Optional[str], default=None, help="Task name if n_tasks == 1.")
+@click.option('--task_name', 'task_name', type=str, default="", help="Task name if n_tasks == 1.")
 
 # Parallelism
 @click.option('--sampler', 'sampler', type=str, default="local", help="Sampler to use. Can be either local or ray.")
@@ -93,7 +93,7 @@ def metaworld_mtf(ctxt=None, *,
                     shutdown: bool,
                     n_tasks: int,
                     increasing_difficulty: bool,
-                    task_name: Optional[str],
+                    task_name: str,
                     sampler: str,
                     n_workers: int,
                     n_envs: int,
@@ -127,6 +127,8 @@ def metaworld_mtf(ctxt=None, *,
     """
 
     # Verify arguments
+    if task_name == "":
+        task_name = None
     assert n_tasks <= 500, "n_tasks must be <= 500"
     assert num_training_batch_before_eval > 0, "num_training_batch_before_eval must be > 0"
     assert algo in ["mtsac", "ppo", "trpo"], "algo must be either mtsac, ppo or trpo"
