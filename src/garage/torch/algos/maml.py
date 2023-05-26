@@ -3,7 +3,7 @@
 import collections
 import copy
 
-from dowel import tabular
+from toolbox.log import tabular
 import numpy as np
 import torch
 

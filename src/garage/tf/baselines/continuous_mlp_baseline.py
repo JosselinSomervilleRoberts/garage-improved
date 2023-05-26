@@ -1,5 +1,5 @@
 """A value function (baseline) based on a MLP model."""
-from dowel import tabular
+from toolbox.log import tabular
 import numpy as np
 import tensorflow as tf
 

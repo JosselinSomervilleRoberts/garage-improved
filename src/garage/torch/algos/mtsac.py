@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from typing import Dict
-from dowel import tabular
+from toolbox.log import tabular
 
 from garage import (EpisodeBatch, log_multitask_performance,
                     obtain_evaluation_episodes, StepType)
@@ -272,6 +272,7 @@ class MTSAC(SAC):
         last_return = None
         epoch_count = 0
         filtered_success_rate = [0.0] * self._num_tasks
+        filtered_avg_discounted_return = [0.0] * self._num_tasks
         task_names = []
         for _ in trainer.step_epochs():
             epoch_count += 1
@@ -282,16 +283,34 @@ class MTSAC(SAC):
                 else:
                     batch_size = None
                 # Sample each task proportionally to (1 - success_rate) ** sampling_factor_success_rate
-                coefficient = np.array([1.0 - filtered_success_rate[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
-                coefficient = coefficient / np.sum(coefficient)
+                # coefficient = np.array([1.2 - filtered_success_rate[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                # Sample each task proportionally to (1000/(avg_discounted_return + 50)) ** sampling_factor_success_rate
+                # Then the heuristic are normalized, making sure that the sum of the coefficient is 1.
+                # We then add a second term: coefficient_success that is proportional to
+                # (1.2 - x[i]) ** sampling_factor_success_rate
+                # with x[i] = 0. if filtered_success_rate[i] < 0.4, and x[i] = filtered_success_rate[i] otherwise
+                # The final coefficient is the sum of the two terms, normalized to sum to 1.
+                # Additionally, each task must probability of at least 0.2 / self._num_tasks
+                coefficient_return = np.array([1000.0 / (filtered_avg_discounted_return[i] + 50.0) for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                coefficient_return = coefficient_return / np.sum(coefficient_return)
+                x = np.array([0.0 if filtered_success_rate[i] < 0.4 else filtered_success_rate[i] for i in range(self._num_tasks)])
+                coefficient_success = np.array([1.2 - x[i] for i in range(self._num_tasks)]) ** self._sampling_factor_success_rate
+                coefficient_success = coefficient_success / np.sum(coefficient_success)
+                coefficient = coefficient_return + coefficient_success
+                coefficient = 0.8 * coefficient / np.sum(coefficient)
+                coefficient += 0.2 / self._num_tasks
+                assert np.abs(np.sum(coefficient) - 1.0) < 1e-6
+
                 trainer.step_episode, sample_distribution = trainer.obtain_samples(
                     trainer.step_itr, batch_size, task_distribution = coefficient, return_sample_distribution=True)
                 # Log the coefficient for each task if we have the task names
                 if len(task_names) == self._num_tasks:
                     for idx, task in enumerate(task_names):
                         with tabular.prefix(task + '/'):
-                            tabular.record('SamplingProbability', coefficient[idx])
-                            tabular.record('SampleDistribution', sample_distribution[idx])
+                            tabular.record('SamplingProbabilityCombined', coefficient[idx], step=epoch_count-1)
+                            tabular.record('SamplingProbabilityReturn', coefficient_return[idx], step=epoch_count-1)
+                            tabular.record('SamplingProbabilitySuccess', coefficient_success[idx], step=epoch_count-1)
+                            tabular.record('SampleDistribution', sample_distribution[idx], step=epoch_count-1)
                 path_returns = []
                 for path in trainer.step_episode:
                     self.replay_buffer.add_path(
@@ -317,11 +336,15 @@ class MTSAC(SAC):
                         task_names.append(task)
             success_rate = [performance[task]['success_rate'] for task in task_names]
             filtered_success_rate = [self._filter_success_rate_factor * filtered_success_rate[i] + (1 - self._filter_success_rate_factor) * success_rate[i] for i in range(self._num_tasks)]
+            avg_discounted_return = [performance[task]['average_discounted_return'] for task in task_names]
+            filtered_avg_discounted_return = [self._filter_success_rate_factor * filtered_avg_discounted_return[i] + (1 - self._filter_success_rate_factor) * avg_discounted_return[i] for i in range(self._num_tasks)]
+
             for idx, task in enumerate(task_names):
                 with tabular.prefix(task + '/'):
-                    tabular.record('FilteredSuccessRate', filtered_success_rate[idx])
+                    tabular.record('FilteredSuccessRate', filtered_success_rate[idx], step=epoch_count-1)
+                    tabular.record('FilteredAvgDiscountedReturn', filtered_avg_discounted_return[idx], step=epoch_count-1)
             self._log_statistics(policy_loss, qf1_loss, qf2_loss)
-            tabular.record('TotalEnvSteps', trainer.total_env_steps)
+            tabular.record('TotalEnvSteps', trainer.total_env_steps, step=epoch_count-1)
             trainer.step_itr += 1
 
         return last_return

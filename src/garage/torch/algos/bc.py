@@ -2,7 +2,7 @@
 # yapf: disable
 import itertools
 
-from dowel import tabular
+from toolbox.log import tabular
 import numpy as np
 import torch
 

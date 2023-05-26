@@ -1,6 +1,6 @@
 """Gaussian exploration strategy."""
 import akro
-from dowel import tabular
+from toolbox.log import tabular
 import numpy as np
 
 from garage.np.exploration_policies.exploration_policy import ExplorationPolicy

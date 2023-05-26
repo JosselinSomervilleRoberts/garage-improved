@@ -37,7 +37,7 @@ To prepare your TensorBoard output, import dowel's `TabularInput` instance
 `tabular` by:
 
 ```py
-from dowel import tabular
+from toolbox.log import tabular
 ```
 
 Add scalar values:

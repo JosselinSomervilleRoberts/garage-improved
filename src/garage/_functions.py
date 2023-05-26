@@ -3,12 +3,13 @@ from collections import defaultdict
 import time
 
 import click
-from dowel import tabular
+from toolbox.log import tabular
 import numpy as np
 from typing import Dict
 
 from garage import EpisodeBatch, StepType
 from garage.np import discount_cumsum, stack_tensor_dict_list
+from nltk import stem
 
 
 class _Default:  # pylint: disable=too-few-public-methods
@@ -241,40 +242,45 @@ def log_multitask_performance(itr, batch, discount, name_map=None):
     for task_name in task_names:
         if task_name in eps_by_name:
             episodes = eps_by_name[task_name]
-            undiscounted_returns, success = log_performance(itr,
+            metrics = log_performance(itr,
                             EpisodeBatch.concatenate(*episodes),
                             discount,
                             prefix=task_name,
-                            return_success=True)
+                            return_additional_metrics=True)
             performance[task_name] = {
-                'average_return': np.mean(undiscounted_returns),
-                'success_rate': np.mean(success),
-                'undiscounted_returns': undiscounted_returns,
-                'success': success
+                'average_return': np.mean(metrics[0]),
+                'success_rate': np.mean(metrics[1]),
+                'average_discounted_return': np.mean(metrics[2]),
+                'undiscounted_returns': metrics[0],
+                'success': metrics[1],
+                'discounted_returns': metrics[2],
             }
         else:
             with tabular.prefix(task_name + '/'):
-                tabular.record('Iteration', itr)
-                tabular.record('NumEpisodes', 0)
-                tabular.record('AverageDiscountedReturn', np.nan)
-                tabular.record('AverageReturn', np.nan)
-                tabular.record('StdReturn', np.nan)
-                tabular.record('MaxReturn', np.nan)
-                tabular.record('MinReturn', np.nan)
-                tabular.record('TerminationRate', np.nan)
-                tabular.record('SuccessRate', np.nan)
+                # tabular.record('Iteration', itr)
+                # tabular.record('NumEpisodes', 0)
+                tabular.record('AverageDiscountedReturn', np.nan, step=itr)
+                tabular.record('AverageReturn', np.nan, step=itr)
+                # tabular.record('StdReturn', np.nan)
+                # tabular.record('MaxReturn', np.nan)
+                # tabular.record('MinReturn', np.nan)
+                tabular.record('TerminationRate', np.nan, step=itr)
+                tabular.record('SuccessRate', np.nan, step=itr)
 
-    avg_undiscounted_returns, avg_success = log_performance(itr, batch, discount=discount, prefix='Average', return_success=True)
+
+    metrics = log_performance(itr, batch, discount=discount, prefix='Average', return_additional_metrics=True)
     performance['average'] = {
-        'average_return': np.mean(avg_undiscounted_returns),
-        'success_rate': np.mean(avg_success),
-        'undiscounted_returns': avg_undiscounted_returns,
-        'success': avg_success
+        'average_return': np.mean(metrics[0]),
+        'success_rate': np.mean(metrics[1]),
+        'average_discounted_return': np.mean(metrics[2]),
+        'undiscounted_returns': metrics[0],
+        'success': metrics[1],
+        'discounted_returns': metrics[2],
     }
     return performance
 
 
-def log_performance(itr, batch, discount, prefix='Evaluation', return_success=False):
+def log_performance(itr, batch, discount, prefix='Evaluation', return_additional_metrics=False):
     """Evaluate the performance of an algorithm on a batch of episodes.
 
     Args:
@@ -282,11 +288,14 @@ def log_performance(itr, batch, discount, prefix='Evaluation', return_success=Fa
         batch (EpisodeBatch): The episodes to evaluate with.
         discount (float): Discount value, from algorithm's property.
         prefix (str): Prefix to add to all logged keys.
-        return_success (bool): If True, return success rates.
+        return_additional_metrics (bool): If True, return success rates.
 
     Returns:
         numpy.ndarray: Undiscounted returns.
-        (Optional, if return_success==True) numpy.ndarray: Success rates.
+        (Optional, if return_additional_metrics==True) numpy.ndarray: Success rates.
+        (Optional, if return_additional_metrics==True) numpy.ndarray: Discounted returns.
+        NOTE: If return_additional_metrics==True, then the return value is a list of
+        the previously mentioned arrays, in that order.
 
     """
     returns = []
@@ -303,21 +312,27 @@ def log_performance(itr, batch, discount, prefix='Evaluation', return_success=Fa
         if 'success' in eps.env_infos:
             success.append(float(eps.env_infos['success'].any()))
 
-    average_discounted_return = np.mean([rtn[0] for rtn in returns])
+    discounted_returns = [rtn[0] for rtn in returns]
+    average_discounted_return = np.mean(discounted_returns)
 
     with tabular.prefix(prefix + '/'):
-        tabular.record('Iteration', itr)
-        tabular.record('NumEpisodes', len(returns))
+        # tabular.record('Iteration', itr)
+        # tabular.record('NumEpisodes', len(returns))
 
+        std_discounted_return = np.std(discounted_returns)
+        min_discounted_return = np.min(discounted_returns)
+        max_discounted_return = np.max(discounted_returns)
         tabular.record('AverageDiscountedReturn', average_discounted_return)
         tabular.record('AverageReturn', np.mean(undiscounted_returns))
-        tabular.record('StdReturn', np.std(undiscounted_returns))
-        tabular.record('MaxReturn', np.max(undiscounted_returns))
-        tabular.record('MinReturn', np.min(undiscounted_returns))
-        tabular.record('TerminationRate', np.mean(termination))
-        if success:
-            tabular.record('SuccessRate', np.mean(success))
+        if std_discounted_return > 1e-4:
+            tabular.record('StdReturn', std_discounted_return)
+        if abs(min_discounted_return - max_discounted_return) > 1e-4:
+            tabular.record('MaxReturn', max_discounted_return, step=itr)
+            tabular.record('MinReturn', min_discounted_return, step=itr)
+        tabular.record('TerminationRate', np.mean(termination), step=itr)
+        if len(success) > 0:
+            tabular.record('SuccessRate', np.mean(success), step=itr)
 
-    if return_success:
-        return undiscounted_returns, success
+    if return_additional_metrics:
+        return [undiscounted_returns, success, discounted_returns]
     return undiscounted_returns

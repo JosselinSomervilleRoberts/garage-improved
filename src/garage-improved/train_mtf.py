@@ -69,6 +69,9 @@ except ImportError:
 
 # Utils
 @click.option('--render_env', 'render_env', type=bool, default=False, help="Render the environment during training.")
+@click.option('--use_wandb', 'use_wandb', type=bool, default=False, help="Log with wandb.")
+@click.option('--run_name', 'run_name', type=str, default="", help="Name of the run. Only used when log_with is wandb.")
+@click.option('--run_notes', 'run_notes', type=str, default="", help="Notes of the run. Only used when log_with is wandb.")
 @wrap_experiment(snapshot_mode='gap', snapshot_gap=50)
 def metaworld_mtf(ctxt=None, *,
                     seed: int,
@@ -86,7 +89,10 @@ def metaworld_mtf(ctxt=None, *,
                     num_training_batch_before_eval: int,
                     use_gpu: bool,
                     batch_size: int,
-                    render_env: bool):
+                    render_env: bool,
+                    use_wandb: bool,
+                    run_name: str,
+                    run_notes: str):
     """Train either MTSAC, PPO or TRPO with MTFlexible environment.
 
     Args:
@@ -155,7 +161,39 @@ def metaworld_mtf(ctxt=None, *,
     print("epochs: {}".format(epochs))
     print('')
     print("render_env: {}".format(render_env))
+    print("use_wandb: {}".format(use_wandb))
+    print("run_name: {}".format(run_name))
+    print("run_notes: {}".format(run_notes))
     print("======================================")
+
+    # Log with wandb
+    if use_wandb:
+        import wandb
+        from toolbox.log import tabular
+        wandb.init(
+            project="metaworld",
+            name=run_name if run_name != "" else None,
+            notes=run_notes,
+            config={
+                "seed": seed,
+                "sampler": sampler,
+                "n_tasks": n_tasks,
+                "n_workers": n_workers,
+                "n_envs": n_envs,
+                "algo": algo,
+                "discount": discount,
+                "n_hidden_layers": n_hidden_layers,
+                "size_hidden_layers": size_hidden_layers,
+                "replay_buffer_size": replay_buffer_size,
+                "timesteps": timesteps,
+                "num_training_batch_before_eval": num_training_batch_before_eval,
+                "use_gpu": use_gpu,
+                "batch_size": batch_size,
+                "epochs": epochs,
+                "render_env": render_env
+            }
+        )
+        tabular.set_wandb(use_wandb=True, wandb_step_factor=batch_size*num_training_batch_before_eval)
 
     policy, qf1, qf2, value_function = None, None, None, None
     hidden_sizes = [size_hidden_layers] * n_hidden_layers
@@ -272,6 +310,9 @@ def metaworld_mtf(ctxt=None, *,
     algo_object.to()
     trainer.setup(algo=algo_object, env=mtf_train_envs)
     trainer.train(n_epochs=epochs, batch_size=batch_size)
+
+    if use_wandb:
+        wandb.finish()
 
     if shutdown and AWS_SHUTDOWN_AVAILABLE:
         shutdown()

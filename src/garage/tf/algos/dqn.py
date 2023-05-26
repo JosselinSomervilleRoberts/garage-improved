@@ -1,7 +1,7 @@
 """Deep Q-Learning Network algorithm."""
 # yapf: disable
 import akro
-from dowel import tabular
+from toolbox.log import tabular
 import numpy as np
 import tensorflow as tf
 
